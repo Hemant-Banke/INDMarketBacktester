@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { tip } from '../glossary'
 
 export type Col<T> = {
   key: string
@@ -39,7 +40,7 @@ export function DataTable<T extends Record<string, any>>({ rows, cols, onRow, ta
                   aria-sort={sort?.key === c.key ? (sort.desc ? 'descending' : 'ascending') : 'none'}
                   onClick={() => setSort((s) => s?.key === c.key ? { key: c.key, desc: !s.desc } : { key: c.key, desc: !!c.num })}
                   onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLElement).click()}>
-                  {c.label}{sort?.key === c.key && <span className="arrow">{sort.desc ? '↓' : '↑'}</span>}
+                  {tip(c.label) ? <span data-tip={tip(c.label)}>{c.label}</span> : c.label}{sort?.key === c.key && <span className="arrow">{sort.desc ? '↓' : '↑'}</span>}
                 </th>
               ))}
             </tr>

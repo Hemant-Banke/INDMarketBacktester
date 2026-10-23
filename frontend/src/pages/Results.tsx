@@ -4,6 +4,7 @@ import { axisStyle, baseOption, Chart, SERIES_DARK, SERIES_LIGHT, useTheme, type
 import { DataTable } from '../components/DataTable'
 import { StockDrawer } from '../components/StockDrawer'
 import { inr, num, pct, signClass } from '../format'
+import { tip } from '../glossary'
 
 type Pt = [string, number | null]
 
@@ -93,7 +94,7 @@ function Headline({ s }: { s: any }) {
   return (
     <div className="tablewrap" style={{ marginTop: 16, maxWidth: 820 }}>
       <table className="data compare">
-        <thead><tr><th></th>{rows.map(([l]) => <th key={l} className="num">{l}</th>)}</tr></thead>
+        <thead><tr><th></th>{rows.map(([l]) => <th key={l} className="num"><Tip label={l} /></th>)}</tr></thead>
         <tbody>
           <tr><td><b>Strategy</b></td>{rows.map(([l, f, k]) => <td key={l} className="num"><b>{f(s.strategy[k])}</b></td>)}</tr>
           <tr><td>Benchmark</td>{rows.map(([l, f, k]) => <td key={l} className="num">{f(s.benchmark[k])}</td>)}</tr>
@@ -114,14 +115,23 @@ function lineSeries(name: string, data: Pt[], color: string, width = 2, extra: a
   return { name, type: 'line', showSymbol: false, data, lineStyle: { width, color }, itemStyle: { color }, emphasis: { disabled: true }, ...extra }
 }
 
-function bearAreas(r: any) {
+const BULL_FILL = (t: Theme) => (t.dark ? 'rgba(77,190,140,0.10)' : 'rgba(27,150,100,0.08)')
+const BEAR_FILL = (t: Theme) => (t.dark ? 'rgba(230,103,103,0.11)' : 'rgba(196,60,59,0.08)')
+
+/** Shaded spans for Bull and Bear trend regimes; Sideways stays unshaded. */
+function regimeAreas(r: any, t: Theme) {
   const tl: [string, string | null][] = r.charts.regime_timeline ?? []
+  const kind = (lab: string | null) => (lab?.startsWith('Bull') ? 'bull' : lab?.startsWith('Bear') ? 'bear' : null)
   const areas: any[] = []
   let start: string | null = null
+  let cur: string | null = null
   tl.forEach(([d, lab], i) => {
-    const bear = lab?.startsWith('Bear')
-    if (bear && !start) start = d
-    if ((!bear || i === tl.length - 1) && start) { areas.push([{ xAxis: start }, { xAxis: d }]); start = null }
+    const k = kind(lab)
+    if (k !== cur || i === tl.length - 1) {
+      if (cur && start) areas.push([{ xAxis: start, itemStyle: { color: cur === 'bull' ? BULL_FILL(t) : BEAR_FILL(t) } }, { xAxis: d }])
+      start = k ? d : null
+      cur = k
+    }
   })
   return areas
 }
@@ -138,7 +148,7 @@ function Overview({ r }: { r: any }) {
     dataZoom: [{ type: 'inside' }],
     series: [
       lineSeries('Benchmark', c.benchmark_equity, t.bench, 1.5, {
-        markArea: { silent: true, itemStyle: { color: t.dark ? 'rgba(230,103,103,0.10)' : 'rgba(196,60,59,0.07)' }, data: bearAreas(r) },
+        markArea: { silent: true, data: regimeAreas(r, t) },
       }),
       lineSeries('Strategy', c.equity, t.accent, 2),
     ],
@@ -173,7 +183,8 @@ function Overview({ r }: { r: any }) {
       <section className="panel">
         <div className="row"><h2 style={{ margin: 0 }}>Growth of capital</h2><span className="spacer" />
           <div className="legend"><span><i style={{ background: t.accent }} />Strategy</span><span><i style={{ background: t.bench }} />Benchmark</span>
-            <span><i style={{ background: 'rgba(196,60,59,0.25)', height: 8 }} />Benchmark below a falling 200-day average</span></div>
+            <span><i style={{ background: 'rgba(27,150,100,0.3)', height: 8 }} />Bull trend</span>
+            <span><i style={{ background: 'rgba(196,60,59,0.3)', height: 8 }} />Bear trend</span></div>
           <div className="seg"><button className={log ? 'on' : ''} onClick={() => setLog(true)}>Log</button><button className={!log ? 'on' : ''} onClick={() => setLog(false)}>Linear</button></div>
         </div>
         <Chart option={equity as any} className="chart tall" />
@@ -208,7 +219,13 @@ function Overview({ r }: { r: any }) {
 }
 
 function KV({ rows }: { rows: [string, string][] }) {
-  return <div className="kv">{rows.map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}</div>
+  return <div className="kv">{rows.map(([k, v]) => <div key={k}><span><Tip label={k} /></span><b>{v}</b></div>)}</div>
+}
+
+/** A metric label that explains itself on hover or focus, when the glossary has an entry. */
+function Tip({ label }: { label: string }) {
+  const text = tip(label)
+  return text ? <span data-tip={text} tabIndex={0}>{label}</span> : <>{label}</>
 }
 
 function MetricTable({ s }: { s: any }) {
@@ -223,7 +240,7 @@ function MetricTable({ s }: { s: any }) {
   return (
     <table className="data compare">
       <thead><tr><th></th><th className="num">Strategy</th><th className="num">Benchmark</th></tr></thead>
-      <tbody>{rows.map(([l, k, f]) => <tr key={k}><td>{l}</td><td className="num">{f(s.strategy[k])}</td><td className="num">{f(s.benchmark[k])}</td></tr>)}</tbody>
+      <tbody>{rows.map(([l, k, f]) => <tr key={k}><td><Tip label={l} /></td><td className="num">{f(s.strategy[k])}</td><td className="num">{f(s.benchmark[k])}</td></tr>)}</tbody>
     </table>
   )
 }
@@ -360,7 +377,7 @@ function Rolling({ r }: { r: any }) {
 function Regimes({ r }: { r: any }) {
   const t = useTheme()
   const sections: [string, string, string][] = [
-    ['trend', 'Benchmark trend', 'Bull: benchmark above a rising 200-day average. Bear: below a falling one. Each day is labelled with what was known at the previous close.'],
+    ['trend', 'Benchmark trend', 'Bull: benchmark above a rising 200-day average. Bear: below a falling one. Sideways: anything else. Each day is labelled with what was known at the previous close, so the label lags: a fall usually starts in Sideways, and the rebound off a bottom stays Bear until the benchmark climbs back above its average.'],
     ['benchmark_drawdown', 'Benchmark distance from its high', 'How far the benchmark was below its all-time high at the previous close.'],
     ['volatility', 'Benchmark volatility', 'One-month realised volatility, compared with the terciles of all volatility seen up to that day.'],
   ]

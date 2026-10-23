@@ -22,4 +22,6 @@ class QualityValue(Strategy):
         if len(picks) == 0:
             ctx.log("no candidates (fundamentals not yet available?)")
             return
-        ctx.rebalance({s: 1 / len(picks) for s in picks})
+        # Fixed 1/top_n slots: with few candidates the rest stays in cash, instead of
+        # putting everything into one or two names.
+        ctx.rebalance({s: 1 / self.p.top_n for s in picks})

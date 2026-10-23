@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Tooltip } from './components/Tooltip'
 import { Backtest } from './pages/Backtest'
 import { Data } from './pages/Data'
 import { RunDetail, RunList } from './pages/Results'
@@ -30,6 +31,7 @@ export default function App() {
         {page === 'strategies' && <Strategies go={go} />}
         {page === 'data' && <Data />}
       </main>
+      <Tooltip />
     </div>
   )
 }

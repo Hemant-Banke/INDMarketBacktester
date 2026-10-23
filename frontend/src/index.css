@@ -211,3 +211,13 @@ table.compare td.num { min-width: 92px; }
 .empty { padding: 36px 16px; text-align: center; color: var(--ink-2); }
 details > summary { cursor: pointer; color: var(--ink-2); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* metric explanations */
+[data-tip] { text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+span[data-tip] { cursor: help; }
+.tooltip {
+  position: fixed; z-index: 50; max-width: 300px; padding: 7px 10px;
+  background: var(--ink); color: var(--surface); border-radius: var(--radius-s);
+  font-size: 12px; line-height: 1.45; font-weight: 400; text-align: left; white-space: normal;
+  pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
