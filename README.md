@@ -29,6 +29,13 @@ every decision date, or hand-picked stocks), a period, capital, benchmark and co
 
 ![Backtest setup](docs/screenshots/backtest-setup.jpg)
 
+Transaction costs default to Indian equity delivery charges with a zero-brokerage discount
+broker: STT 0.1% each side, stamp duty 0.015% on buys, NSE exchange charge, SEBI fee, 18%
+GST on fees, a ₹15.93 depository charge per sell, and 10 bps slippage. Every value can be
+changed per backtest, and each fill is also capped at a share of that day's volume.
+
+![Transaction cost settings](docs/screenshots/transaction-costs.jpg)
+
 Strategies are Python classes, editable in the app or in your own editor.
 
 ![Strategy editor](docs/screenshots/strategy-editor.jpg)
