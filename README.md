@@ -3,12 +3,65 @@
 Screener and backtester for NSE stocks. All data is point-in-time: the screener and every
 strategy only see data up to the day they're evaluated.
 
+![Backtest result: 12-1 momentum vs NIFTY 500, 2008–2026](docs/screenshots/results-overview.jpg)
+
+## What it looks like
+
+### Screener
+
+Filter every listed stock with formulas, as of any past date. Each filter is checked as you
+type and shows how many stocks pass it today.
+
+![Screener with three formula filters and results](docs/screenshots/screener.jpg)
+
+Metric and function names autocomplete, with a description of each.
+
+![Formula autocomplete](docs/screenshots/formula-autocomplete.jpg)
+
+Click a stock for its adjusted price history and latest metrics.
+
+![Stock detail drawer](docs/screenshots/stock-detail.jpg)
+
+### Backtesting
+
+Pick a strategy and its parameters, a universe (all listed stocks, a saved screen re-run on
+every decision date, or hand-picked stocks), a period, capital, benchmark and costs.
+
+![Backtest setup](docs/screenshots/backtest-setup.jpg)
+
+Strategies are Python classes, editable in the app or in your own editor.
+
+![Strategy editor](docs/screenshots/strategy-editor.jpg)
+
+### Results
+
+Drawdowns against the benchmark, exposure and number of holdings:
+
+![Drawdown, exposure and holdings](docs/screenshots/results-drawdown.jpg)
+
+Monthly returns (strategy, benchmark, or the difference):
+
+![Monthly returns heatmap](docs/screenshots/results-monthly.jpg)
+
+Performance by market regime, each day labelled only with what was known at the time:
+
+![Returns by benchmark trend regime](docs/screenshots/results-regimes.jpg)
+
+And through notable Indian market episodes:
+
+![Notable market episodes](docs/screenshots/results-episodes.jpg)
+
+Sector weights over time, biggest contributors and open positions:
+
+![Sector weights and contributors](docs/screenshots/results-holdings.jpg)
+
 ## Run it
 
 ```bash
 cd backend && uv sync
+uv run mbt ingest snapshot corporate_actions  # Tickertape snapshot, then split/bonus history
 uv run mbt ingest prices --start 2005-01-01   # NSE bhavcopies; ~1h first time, incremental later
-uv run mbt ingest indices snapshot fundamentals
+uv run mbt ingest indices fundamentals        # benchmarks; statements (~2h, paced)
 uv run mbt serve                              # http://127.0.0.1:8000 (serves frontend/dist)
 
 # frontend development (hot reload, proxies /api to :8000)

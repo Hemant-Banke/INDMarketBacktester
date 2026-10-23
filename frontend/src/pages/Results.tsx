@@ -383,7 +383,7 @@ function Regimes({ r }: { r: any }) {
           <section className="panel" key={k}>
             <h2>{title}</h2>
             <p className="small muted" style={{ marginTop: -4 }}>{desc}</p>
-            <div className="grid2">
+            <div className="stack">
               <Chart option={opt as any} className="chart short" />
               <DataTable rows={rows} cols={[
                 { key: 'regime', label: 'Regime' },

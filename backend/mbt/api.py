@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +19,24 @@ from .data.store import get_market_data
 from .formula import Evaluator, FormulaError, describe
 from .runner import _clean
 
-app = FastAPI(title="Markets Backtester")
+def _warm_up():
+    """Load prices, fundamentals and derived panels so the first request isn't slow."""
+    try:
+        md = get_market_data()
+        for f in ("open", "high", "low", "close", "volume", "value"):
+            md.panel(f)
+        md.close_ffill, md.series_codes, md.benchmarks  # noqa: B018 (cached properties)
+    except FileNotFoundError:
+        pass  # no data ingested yet
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    threading.Thread(target=_warm_up, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Markets Backtester", lifespan=_lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                    allow_headers=["*"])
 

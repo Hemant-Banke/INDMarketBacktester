@@ -105,6 +105,7 @@ h3 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
   padding: 16px;
 }
 .panel + .panel { margin-top: 16px; }
+.grid2 > .panel, .grid3 > .panel, .stack > .panel { margin-top: 0; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }

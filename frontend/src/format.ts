@@ -7,8 +7,9 @@ export function num(v: unknown, d = 2): string {
 
 export function pct(v: unknown, d = 1, signed = false): string {
   if (typeof v !== 'number' || !Number.isFinite(v)) return '–'
-  const s = nf(d).format(v * 100) + '%'
-  return signed && v > 0 ? '+' + s : s
+  const x = Math.abs(v * 100) < 0.5 * 10 ** -d ? 0 : v // no "-0.0%"
+  const s = nf(d).format(x * 100) + '%'
+  return signed && x > 0 ? '+' + s : s
 }
 
 /** Indian-style rupee amounts: 1.23 Cr, 4.5 L */

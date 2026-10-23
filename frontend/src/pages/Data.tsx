@@ -3,10 +3,10 @@ import { api } from '../api'
 
 const STEPS: [string, string, string][] = [
   ['snapshot', 'Tickertape snapshot', "Today's Tickertape screener values, sectors and industries for every stock."],
-  ['corporate_actions', 'Splits and bonuses', 'Split, bonus, rights and demerger history from Tickertape and Yahoo, used to adjust prices. About an hour (both sources throttle bulk requests).'],
-  ['prices', 'Daily prices', 'NSE bhavcopies for every trading day since the start date, adjusted for splits and bonuses. First run takes about an hour (NSE throttles fast downloads); later runs fetch only new days.'],
-  ['indices', 'Benchmarks', 'NIFTY 50, NIFTY 500, Bank, IT, Next 50 and Sensex history.'],
-  ['fundamentals', 'Financial statements', 'Annual income, balance sheet and cash flow plus recent quarters for ~5,500 companies. Paced to avoid Tickertape blocking us, so it takes about 2 hours.'],
+  ['corporate_actions', 'splits and bonuses', 'Split, bonus, rights and demerger history from Tickertape and Yahoo, used to adjust prices. About an hour (both sources throttle bulk requests).'],
+  ['prices', 'daily prices', 'NSE bhavcopies for every trading day since the start date, adjusted for splits and bonuses. First run takes about an hour (NSE throttles fast downloads); later runs fetch only new days.'],
+  ['indices', 'benchmarks', 'NIFTY 50, NIFTY 500, Bank, IT, Next 50 and Sensex history.'],
+  ['fundamentals', 'financial statements', 'Annual income, balance sheet and cash flow plus recent quarters for ~5,500 companies. Paced to avoid Tickertape blocking us, so it takes about 2 hours.'],
 ]
 
 export function Data() {
@@ -43,7 +43,7 @@ export function Data() {
               <div><span>Delisted / inactive</span><b>{st.delisted_or_inactive.toLocaleString('en-IN')}</b></div>
               <div><span>Benchmarks</span><b>{st.benchmarks.join(', ') || 'none'}</b></div>
               {Object.entries(st.fundamentals ?? {}).map(([k, v]: any) => (
-                <div key={k}><span>{k.replace('_', ' ')} known from</span><b>{v.first_available} ({v.companies.toLocaleString('en-IN')} cos)</b></div>
+                <div key={k}><span>{k.replace('q_', 'quarterly ').replace('_', ' ')}: earliest / companies</span><b>{v.first_available} / {v.companies.toLocaleString('en-IN')}</b></div>
               ))}
             </div>
           ) : <p>No price data yet. Download daily prices to get started.</p>}
@@ -53,7 +53,7 @@ export function Data() {
           <label className="field" style={{ maxWidth: 220 }}>Prices from<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
           {STEPS.map(([k, label, desc]) => (
             <div className="row" key={k} style={{ alignItems: 'flex-start' }}>
-              <button className="btn" style={{ minWidth: 170 }} disabled={job?.status === 'running'} onClick={() => run([k])}>Update {label.toLowerCase()}</button>
+              <button className="btn" style={{ minWidth: 170 }} disabled={job?.status === 'running'} onClick={() => run([k])}>Update {label}</button>
               <div className="small" style={{ flex: 1, minWidth: 200 }}>{desc}
                 {st.ingest?.[k] && <div className="muted">Last updated {st.ingest[k].at.replace('T', ' ')}</div>}</div>
             </div>
