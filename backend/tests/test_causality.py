@@ -22,16 +22,27 @@ def md():
         pytest.skip("no market data ingested")
 
 
-@pytest.mark.parametrize("sid", ["momentum:Momentum", "trend_breakout:TrendBreakout",
-                                 "quality_value:QualityValue"])
-def test_truncated_history_gives_identical_trades(md, sid):
-    cls = runner.discover()[sid]["cls"]
+# A size slice of the universe is re-ranked on fixed dates from data up to that date only.
+MIDCAPS = {"type": "all", "rank": {"by": "adv_63d", "from": 101, "to": 250, "refresh": 21}}
+
+
+@pytest.mark.parametrize("sid,universe", [
+    ("momentum:Momentum", None), ("trend_breakout:TrendBreakout", None),
+    ("quality_value:QualityValue", None), ("hb_sma_cross:HbSmaCross", MIDCAPS),
+    ("hb_mean_reversion:HbMeanReversion", MIDCAPS), ("hb_ma_cross:HbMaCross", MIDCAPS),
+])
+def test_truncated_history_gives_identical_trades(md, sid, universe):
+    found = runner.discover()
+    if sid not in found:
+        pytest.skip(f"{sid} not present (private strategies are not in git)")
+    cls = found[sid]["cls"]
     n = len(md.dates)
     start = md.dates[max(0, n - 600)]
     cut = n - 150                       # truncate 150 sessions before the end
-    full = Engine(md, cls(), BacktestConfig(start=str(start.date()))).run()
+    cfg = dict(start=str(start.date()), **({"universe": universe} if universe else {}))
+    full = Engine(md, cls(), BacktestConfig(**cfg)).run()
     short_md = md.truncated(cut)
-    short = Engine(short_md, cls(), BacktestConfig(start=str(start.date()))).run()
+    short = Engine(short_md, cls(), BacktestConfig(**cfg)).run()
     upto = md.dates[cut]
     assert _fills(full, upto) == _fills(short, upto)
     eq_full = full["equity"]["equity"][:upto]

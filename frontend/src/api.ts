@@ -36,8 +36,12 @@ export type Screen = {
   limit?: number | null
   base?: { include_sme?: boolean }
 }
-export type Universe =
+/** Keep ranks from..to (1 = highest `by`), re-ranked every `refresh` sessions, point-in-time. */
+export type RankSlice = { by: string; from: number; to: number; refresh: number }
+
+export type Universe = (
   | { type: 'all'; include_sme?: boolean }
   | { type: 'manual'; symbols: string[] }
   | { type: 'screen'; screen?: Screen; screen_id?: string }
+) & { rank?: RankSlice }
 export type SavedUniverse = { id: string; name: string; universe: Universe }

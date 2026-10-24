@@ -10,6 +10,15 @@ const COSTS = {
   dp_per_sell: ['DP charge per sell ₹', 15.93],
 } as const
 
+// Size bands follow SEBI's market-cap classes (large 1-100, mid 101-250, small 251+).
+const SIZE_BANDS: [string, number, number][] = [
+  ['Top 50', 1, 50], ['Large 1–100', 1, 100], ['Mid 101–250', 101, 250],
+  ['Small 251–750', 251, 750], ['Micro 751–1500', 751, 1500],
+]
+const RANK_BY: [string, string][] = [
+  ['adv_63d', 'Average traded value, 3 months'], ['mcap', 'Market cap (from mid-2022 only)'],
+]
+
 const PRESETS: [string, string][] = [['Since 2008', '2008-01-01'], ['10 years', 'y10'], ['5 years', 'y5'], ['3 years', 'y3'], ['1 year', 'y1']]
 
 function presetStart(p: string, end: string) {
@@ -41,6 +50,12 @@ export function Backtest({ go }: { go: (h: string) => void }) {
   const [status, setStatus] = useState<any>(null)
   const [err, setErr] = useState('')
   const [uName, setUName] = useState('')
+  const [sliceOn, setSliceOn] = useState(false)
+  const [rankBy, setRankBy] = useState('adv_63d')
+  const [customBy, setCustomBy] = useState('')
+  const [rankFrom, setRankFrom] = useState(1)
+  const [rankTo, setRankTo] = useState(50)
+  const [refresh, setRefresh] = useState(21)
 
   useEffect(() => {
     api<StrategyInfo[]>('/strategies').then((s) => { setStrategies(s); const first = s.find((x) => !x.error); if (first) { setSid(first.id); setParams(first.params) } })
@@ -50,16 +65,24 @@ export function Backtest({ go }: { go: (h: string) => void }) {
   }, [])
   const strat = strategies.find((s) => s.id === sid)
 
-  const universe = (): Universe => {
+  const baseUniverse = (): Universe => {
     if (uKind === 'manual') return { type: 'manual', symbols }
     if (uKind === 'saved') return savedU.find((u) => u.id === savedId)?.universe ?? { type: 'all' }
     if (uKind === 'screen') return { type: 'screen', screen_id: screenId }
     return { type: 'all', include_sme: sme }
   }
+  const universe = (): Universe => {
+    const u = baseUniverse()
+    if (!sliceOn) return u
+    const by = rankBy === 'custom' ? customBy.trim() : rankBy
+    return { ...u, rank: { by, from: rankFrom, to: rankTo, refresh } }
+  }
 
   const run = async () => {
     setErr('')
     if (uKind === 'manual' && !symbols.length) { setErr('Pick at least one stock, or choose another universe.'); return }
+    if (sliceOn && rankBy === 'custom' && !customBy.trim()) { setErr('Enter a formula to rank stocks by, or pick a preset.'); return }
+    if (sliceOn && !(rankFrom >= 1 && rankTo >= rankFrom)) { setErr('Size slice: "to" rank must be at least the "from" rank.'); return }
     try {
       const { id } = await api<{ id: string }>('/backtests', { body: {
         strategy_id: sid, params,
@@ -139,6 +162,34 @@ export function Backtest({ go }: { go: (h: string) => void }) {
               <button className="btn small" onClick={saveManual}>Save as universe</button>
             </div>}
           </>}
+
+          <label className="check"><input type="checkbox" checked={sliceOn} onChange={(e) => setSliceOn(e.target.checked)} /> Keep only a size slice of this universe</label>
+          {sliceOn && <div className="stack" style={{ gap: 10 }}>
+            <div className="row" style={{ gap: 6 }}>
+              {SIZE_BANDS.map(([l, a, b]) => (
+                <button key={l} className={`btn small ${rankFrom === a && rankTo === b ? 'on' : ''}`} onClick={() => { setRankFrom(a); setRankTo(b) }}>{l}</button>
+              ))}
+            </div>
+            <div className="row">
+              <label className="field">Rank by
+                <select value={rankBy} onChange={(e) => setRankBy(e.target.value)}>
+                  {RANK_BY.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  <option value="custom">Custom formula…</option>
+                </select>
+              </label>
+              <label className="field">From rank<input type="number" min={1} value={rankFrom} onChange={(e) => setRankFrom(Number(e.target.value))} /></label>
+              <label className="field">To rank<input type="number" min={1} value={rankTo} onChange={(e) => setRankTo(Number(e.target.value))} /></label>
+              <label className="field">Re-rank every (sessions)<input type="number" min={1} value={refresh} onChange={(e) => setRefresh(Number(e.target.value))} /></label>
+            </div>
+            {rankBy === 'custom' && <label className="field">Formula (highest value = rank 1)
+              <input type="text" placeholder="e.g. adv_63d * (close > 20)" value={customBy} onChange={(e) => setCustomBy(e.target.value)} />
+            </label>}
+            <p className="small muted" style={{ margin: 0 }}>
+              Ranks are taken from what was known on each re-rank date, so the slice is the stocks that
+              were that size at the time, not today. Traded value works for the whole history; market cap
+              needs shares outstanding, which only exist from mid-2022.
+            </p>
+          </div>}
         </section>
 
         <section className="panel stack">

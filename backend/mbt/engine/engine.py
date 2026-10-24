@@ -56,6 +56,7 @@ class Engine:
         self.bench_close = (b.reindex(md.dates).ffill().to_numpy(float) if b is not None
                             else np.full(len(md.dates), np.nan))
         self._umask_cache: tuple[int, np.ndarray] | None = None
+        self._rank_cache: tuple[int, np.ndarray] | None = None
         self._sym_pos = {s: k for k, s in enumerate(md.symbols)}
         self.open = md.panel("open")
         self.high = md.panel("high")
@@ -66,9 +67,31 @@ class Engine:
     # ---- helpers used by Context ----
     def universe_mask(self) -> np.ndarray:
         if self._umask_cache is None or self._umask_cache[0] != self.i:
-            self._umask_cache = (self.i, universe_mask(self.md, self.ev, self.i,
-                                                       self.cfg.universe))
+            mask = universe_mask(self.md, self.ev, self.i, self.cfg.universe)
+            rank = self.cfg.universe.get("rank")
+            if rank:
+                mask = mask & self._rank_members(rank)
+            self._umask_cache = (self.i, mask)
         return self._umask_cache[1]
+
+    def _rank_members(self, rank: dict) -> np.ndarray:
+        """Stocks ranked `from`..`to` by the `by` formula (1 = highest) on the latest refresh
+        date. Refresh dates are fixed (every `refresh` sessions from the start), and each
+        ranking uses only data up to its own date, so membership never depends on when the
+        strategy happens to ask."""
+        every = max(int(rank.get("refresh") or 21), 1)
+        b = self.i0 + (self.i - self.i0) // every * every
+        if self._rank_cache is None or self._rank_cache[0] != b:
+            base = universe_mask(self.md, self.ev, b, self.cfg.universe)
+            score = np.asarray(self.ev.eval(rank.get("by") or "adv_63d", b), float)
+            score = np.where(base & np.isfinite(score), score, -np.inf)
+            order = np.argsort(-score, kind="stable")
+            lo, hi = max(int(rank.get("from") or 1), 1), int(rank.get("to") or 50)
+            chosen = order[lo - 1:hi]
+            members = np.zeros(len(self.md.symbols), bool)
+            members[chosen[np.isfinite(score[chosen])]] = True
+            self._rank_cache = (b, members)
+        return self._rank_cache[1]
 
     def queue(self, order: Order) -> None:
         if order.symbol not in self._sym_pos:

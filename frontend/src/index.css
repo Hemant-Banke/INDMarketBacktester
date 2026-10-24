@@ -221,3 +221,5 @@ span[data-tip] { cursor: help; }
   font-size: 12px; line-height: 1.45; font-weight: 400; text-align: left; white-space: normal;
   pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
+
+.btn.on { border-color: var(--accent); color: var(--accent); }

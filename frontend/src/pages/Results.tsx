@@ -38,10 +38,15 @@ export function RunList({ go }: { go: (h: string) => void }) {
 
 function describeUniverse(u: any) {
   if (!u) return '–'
-  if (u.type === 'manual') return `${u.symbols.length} picked stocks`
-  if (u.type === 'screen') return `Screen ${u.screen?.name ?? u.screen_id ?? ''}`
-  return u.include_sme ? 'All listed + SME' : 'All listed'
+  const base = u.type === 'manual' ? `${u.symbols.length} picked stocks`
+    : u.type === 'screen' ? `Screen ${u.screen?.name ?? u.screen_id ?? ''}`
+    : u.include_sme ? 'All listed + SME' : 'All listed'
+  if (!u.rank) return base
+  const by = RANK_BY_LABEL[u.rank.by] ?? u.rank.by
+  return `${base}, ranks ${u.rank.from}–${u.rank.to} by ${by}`
 }
+
+const RANK_BY_LABEL: Record<string, string> = { adv_63d: 'traded value', mcap: 'market cap' }
 
 // ---------------------------------------------------------------- run detail
 
