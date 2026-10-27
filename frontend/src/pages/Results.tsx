@@ -5,6 +5,7 @@ import { DataTable } from '../components/DataTable'
 import { StockDrawer } from '../components/StockDrawer'
 import { inr, num, pct, signClass } from '../format'
 import { tip } from '../glossary'
+import { Costs, Robustness } from './ResultsDiagnostics'
 
 type Pt = [string, number | null]
 
@@ -50,7 +51,7 @@ const RANK_BY_LABEL: Record<string, string> = { adv_63d: 'traded value', mcap: '
 
 // ---------------------------------------------------------------- run detail
 
-const TABS = ['Overview', 'Returns', 'Rolling', 'Market regimes', 'Trades', 'Holdings', 'Log'] as const
+const TABS = ['Overview', 'Returns', 'Costs & tax', 'Robustness', 'Rolling', 'Market regimes', 'Trades', 'Holdings', 'Log'] as const
 
 export function RunDetail({ id }: { id: string }) {
   const [meta, setMeta] = useState<any>(null)
@@ -73,7 +74,7 @@ export function RunDetail({ id }: { id: string }) {
         {s.portfolio.start} to {s.portfolio.end} · {describeUniverse(meta.config.universe)} · vs {meta.config.benchmark} · {inr(meta.config.initial_cash)} start
       </p>
       <p className="small muted" style={{ margin: 0 }}>
-        Params: {Object.entries(meta.params).map(([k, v]) => `${k}=${v}`).join(', ') || 'defaults'} · fills at next {meta.config.fill}
+        Params: {Object.entries(meta.params).map(([k, v]) => `${k}=${v}`).join(', ') || 'defaults'} · fills at next {meta.config.fill}{r.costs && (r.costs.tax_mode === 'pay' ? ' · returns after costs and capital-gains tax' : ' · returns after costs, before tax')}
       </p>
       <Headline s={s} />
       <div className="tabs" role="tablist">
@@ -81,6 +82,8 @@ export function RunDetail({ id }: { id: string }) {
       </div>
       {tab === 'Overview' && <Overview r={r} />}
       {tab === 'Returns' && <Returns r={r} />}
+      {tab === 'Costs & tax' && (r.costs ? <Costs r={r} /> : <Rerun />)}
+      {tab === 'Robustness' && (r.robustness ? <Robustness r={r} onSymbol={setDrawer} /> : <Rerun />)}
       {tab === 'Rolling' && <Rolling r={r} />}
       {tab === 'Market regimes' && <Regimes r={r} />}
       {tab === 'Trades' && <Trades r={r} onSymbol={setDrawer} />}
@@ -89,6 +92,10 @@ export function RunDetail({ id }: { id: string }) {
       {drawer && <StockDrawer symbol={drawer} onClose={() => setDrawer(null)} />}
     </div>
   )
+}
+
+function Rerun() {
+  return <div className="note">This run was made before cost, tax and robustness analysis existed. Run it again to see them.</div>
 }
 
 function Headline({ s }: { s: any }) {
@@ -116,7 +123,7 @@ function Headline({ s }: { s: any }) {
 
 // ---------------- overview
 
-function lineSeries(name: string, data: Pt[], color: string, width = 2, extra: any = {}) {
+export function lineSeries(name: string, data: Pt[], color: string, width = 2, extra: any = {}) {
   return { name, type: 'line', showSymbol: false, data, lineStyle: { width, color }, itemStyle: { color }, emphasis: { disabled: true }, ...extra }
 }
 
@@ -213,6 +220,7 @@ function Overview({ r }: { r: any }) {
           ]} /></div>
           <div><h2>Portfolio</h2><KV rows={[
             ['Final equity', inr(s.portfolio.final_equity)], ['Costs paid', `${inr(s.portfolio.total_fees)} (${pct(s.portfolio.fees_pct_of_initial)} of start)`],
+            ...(r.costs ? [['Capital-gains tax', `${inr(r.costs.total_tax)}${r.costs.tax_mode === 'pay' ? '' : ' (not deducted)'}`], ['Value after selling and tax', inr(r.costs.final_after_tax_liquidation)]] as [string, string][] : []),
             ['Annual turnover', pct(s.portfolio.annual_turnover, 0)], ['Average invested', pct(s.portfolio.avg_exposure, 0)],
             ['Average holdings', num(s.portfolio.avg_positions, 1)], ['Orders filled', num(s.portfolio.orders_filled, 0)],
           ]} /></div>
@@ -223,12 +231,12 @@ function Overview({ r }: { r: any }) {
   )
 }
 
-function KV({ rows }: { rows: [string, string][] }) {
+export function KV({ rows }: { rows: [string, string][] }) {
   return <div className="kv">{rows.map(([k, v]) => <div key={k}><span><Tip label={k} /></span><b>{v}</b></div>)}</div>
 }
 
 /** A metric label that explains itself on hover or focus, when the glossary has an entry. */
-function Tip({ label }: { label: string }) {
+export function Tip({ label }: { label: string }) {
   const text = tip(label)
   return text ? <span data-tip={text} tabIndex={0}>{label}</span> : <>{label}</>
 }
@@ -480,6 +488,7 @@ function Trades({ r, onSymbol }: { r: any; onSymbol: (s: string) => void }) {
           { key: 'return_pct', label: 'Return', num: true, render: (x) => <span className={signClass(x.return_pct)}>{num(x.return_pct, 1)}%</span> },
           { key: 'pnl', label: 'P&L (after costs)', num: true, render: (x) => <span className={signClass(x.pnl)}>{inr(x.pnl)}</span> },
           { key: 'sessions_held', label: 'Sessions', num: true }, { key: 'exit_reason', label: 'Exit reason' },
+          { key: 'tax_class', label: 'Tax treatment', render: (x) => x.tax_class ?? '–' },
         ]} />
       ) : (
         <DataTable rows={r.fills} tall onRow={(x) => onSymbol(x.symbol)} cols={[

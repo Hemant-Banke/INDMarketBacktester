@@ -12,6 +12,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from . import diagnostics
+
 TRADING_DAYS = 252
 
 # Notable Indian market episodes (dates inclusive).
@@ -224,7 +226,8 @@ def _rolling(r: pd.Series, b: pd.Series, window: int, rf: float) -> pd.DataFrame
 
 def compute(result: dict, sectors: pd.Series | None = None, rf: float = 0.065,
             initial_cash: float | None = None,
-            benchmark_history: pd.Series | None = None) -> dict:
+            benchmark_history: pd.Series | None = None,
+            securities: pd.DataFrame | None = None) -> dict:
     """benchmark_history: the benchmark's full price history, so regime indicators (200-day
     average etc.) are already warmed up when the backtest starts. Labels stay trailing-only."""
     eq_df: pd.DataFrame = result["equity"]
@@ -346,4 +349,7 @@ def compute(result: dict, sectors: pd.Series | None = None, rf: float = 0.065,
                          "bottom": [{"symbol": k, "pnl": v} for k, v in
                                     contrib_s.head(15).items()]},
         "sector_exposure": sector_exposure,
+        "costs": diagnostics.costs_report(result, portfolio_stats["initial_equity"]),
+        "robustness": diagnostics.robustness_report(result, portfolio_stats["initial_equity"],
+                                                    securities, rf),
     }

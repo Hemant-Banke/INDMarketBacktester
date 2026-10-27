@@ -20,6 +20,7 @@ from .data.store import get_market_data
 from .engine.costs import CostModel
 from .engine.engine import BacktestConfig, Engine
 from .engine.strategy import Strategy
+from .engine.taxes import TaxModel
 
 _RUNS: dict[str, dict] = {}   # in-flight status
 _LOCK = threading.Lock()
@@ -97,7 +98,10 @@ def start_run(strategy_id: str, params: dict, cfg: dict) -> str:
     cls = strategies[strategy_id]["cls"]
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
     costs = CostModel(**(cfg.pop("costs", None) or {}))
-    bcfg = BacktestConfig(**cfg, costs=costs)
+    taxes = TaxModel(**(cfg.pop("taxes", None) or {}))
+    if taxes.mode not in ("pay", "report"):
+        raise ValueError("taxes.mode must be 'pay' or 'report'")
+    bcfg = BacktestConfig(**cfg, costs=costs, taxes=taxes)
     meta = {"id": run_id, "strategy_id": strategy_id, "strategy_name": cls.name,
             "params": {**cls.params, **params}, "config": _clean(asdict(bcfg)),
             "created": datetime.now().isoformat(timespec="seconds"), "status": "running",
@@ -122,7 +126,8 @@ def _run(run_id, cls, params, bcfg: BacktestConfig):
         res = Engine(md, strat, bcfg, progress).run()
         progress(0.99, "analytics")
         an = analytics.compute(res, md.securities["sector"], initial_cash=bcfg.initial_cash,
-                               benchmark_history=md.benchmarks.get(bcfg.benchmark))
+                               benchmark_history=md.benchmarks.get(bcfg.benchmark),
+                               securities=md.securities)
         fills = [{**f.__dict__, "date": str(f.date.date())} for f in res["fills"]]
         out = {**an, "fills": fills, "round_trips": res["round_trips"],
                "open_positions": res["open_positions"], "logs": res["logs"][-2000:],
@@ -131,7 +136,8 @@ def _run(run_id, cls, params, bcfg: BacktestConfig):
         meta.update(status="done", progress=1.0, message=f"done in {res['elapsed']:.1f}s",
                     headline=_clean({k: an["summary"]["strategy"].get(k) for k in
                                      ("cagr", "sharpe", "max_drawdown", "total_return")} |
-                                    {"benchmark_cagr": an["summary"]["benchmark"].get("cagr")}))
+                                    {"benchmark_cagr": an["summary"]["benchmark"].get("cagr"),
+                                     "cagr_after_tax": an["costs"].get("cagr_after_tax")}))
     except Exception:
         meta.update(status="error", message=traceback.format_exc(limit=8))
     (d / "meta.json").write_text(json.dumps(_clean(meta), indent=1))

@@ -47,6 +47,16 @@ class Strategy:
         if unknown:
             raise ValueError(f"Unknown params: {sorted(unknown)}")
         self.p = SimpleNamespace(**{**self.params, **overrides})
+        tf = getattr(self.p, "timeframe", "daily")
+        if tf not in ("daily", "weekly"):
+            raise ValueError(f"timeframe must be 'daily' or 'weekly', not {tf!r}")
+
+    # ---- helpers ----
+    def bars(self, formula: str) -> str:
+        """Make a formula's windows (sma, ema, lag, highest, rsi, ...) count bars of this
+        strategy's `timeframe` param: weekly wraps it in weekly(...)."""
+        return f"weekly({formula})" if getattr(self.p, "timeframe", "daily") == "weekly" \
+            else formula
 
     # ---- hooks ----
     def initialize(self, ctx: "Context") -> None:

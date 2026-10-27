@@ -19,6 +19,7 @@ class Lot:
     cost: float           # fees paid on entry for this lot
     date: pd.Timestamp
     i: int
+    stt: float = 0.0      # part of `cost` that is STT (not deductible from capital gains)
 
 
 @dataclass
@@ -61,6 +62,7 @@ class Order:
     reason: str = ""
     created_i: int = 0
     ttl: int = 5             # sessions to keep trying if untradeable (no print / volume cap)
+    blocked: str = ""        # why the last attempt fell short: "no price", "volume", "cash"
 
 
 @dataclass
@@ -74,6 +76,10 @@ class Fill:
     fees: float
     reason: str
     realized_pnl: float = 0.0
+    costs: dict | None = None        # fees by charge (see CostModel.breakdown)
+    slippage: float = 0.0            # rupees lost to slippage vs the reference price
+    participation: float = 0.0       # qty as a share of the session's volume
+    capped: bool = False             # qty cut by the volume cap
 
 
 class Portfolio:
@@ -101,24 +107,30 @@ class Portfolio:
         pos = self.positions.setdefault(f.symbol, Position(f.symbol, last_trade_i=i))
         if f.side == "buy":
             self.cash -= f.value + f.fees
-            pos.lots.append(Lot(f.qty, f.price, f.fees, f.date, i))
+            stt = (f.costs or {}).get("stt", 0.0)
+            pos.lots.append(Lot(f.qty, f.price, f.fees, f.date, i, stt))
             pos.peak = max(pos.peak, f.price)
         else:
             self.cash += f.value - f.fees
             remaining, realized = f.qty, 0.0
             fee_per_share = f.fees / f.qty
+            stt_per_share = (f.costs or {}).get("stt", 0.0) / f.qty
             while remaining > 0 and pos.lots:
                 lot = pos.lots[0]
                 take = min(lot.qty, remaining)
                 entry_fee = lot.cost * take / lot.qty
+                entry_stt = lot.stt * take / lot.qty
                 pnl = take * (f.price - lot.price) - entry_fee - fee_per_share * take
                 realized += pnl
                 self.round_trips.append({
                     "symbol": f.symbol, "entry_date": lot.date, "exit_date": f.date,
                     "qty": take, "entry_price": lot.price, "exit_price": f.price,
                     "pnl": pnl, "return_pct": (f.price / lot.price - 1) * 100,
-                    "sessions_held": i - lot.i, "exit_reason": f.reason})
+                    "sessions_held": i - lot.i, "exit_reason": f.reason,
+                    "entry_fees": entry_fee, "exit_fees": fee_per_share * take,
+                    "entry_stt": entry_stt, "exit_stt": stt_per_share * take})
                 lot.cost -= entry_fee
+                lot.stt -= entry_stt
                 lot.qty -= take
                 remaining -= take
                 if lot.qty == 0:
@@ -179,10 +191,28 @@ class Context:
         j = md.symbols.get_loc(symbol)
         return float(md.close_ffill[self._e.i, j])
 
-    def benchmark(self, n: int = 252) -> pd.Series:
+    def benchmark(self, n: int = 252, timeframe: str = "daily") -> pd.Series:
+        """The benchmark's last n closes; weekly gives n weekly closes (the current week's
+        bar is today's close)."""
         b = self._e.bench_close
+        if timeframe == "weekly":
+            idx = self._e.ev._bars(self._e.i, n)
+            return pd.Series(b[idx], index=self._e.md.dates[idx])
         lo = max(0, self._e.i - n + 1)
         return pd.Series(b[lo: self._e.i + 1], index=self._e.md.dates[lo: self._e.i + 1])
+
+    def bar_closed(self, timeframe: str = "daily") -> bool:
+        """True when today's close completes a bar of `timeframe`: always for daily, on the
+        week's last session for weekly. Uses the trading calendar (the next session's date),
+        which is known in advance, never prices."""
+        if timeframe == "daily":
+            return True
+        if timeframe != "weekly":
+            raise ValueError(f"Unknown timeframe {timeframe!r} (daily | weekly)")
+        dates, i = self._e.md.dates, self._e.i
+        if i + 1 >= len(dates):
+            return True
+        return dates[i + 1].isocalendar()[:2] != dates[i].isocalendar()[:2]
 
     def info(self, symbol: str) -> dict:
         r = self._e.md.securities.loc[symbol]

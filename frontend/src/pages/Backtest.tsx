@@ -7,7 +7,7 @@ export type StrategyInfo = { id: string; file: string; name: string; description
 const COSTS = {
   slippage_bps: ['Slippage (bps per side)', 10], stt_pct: ['STT %', 0.1], stamp_buy_pct: ['Stamp duty on buys %', 0.015],
   exchange_pct: ['Exchange charge %', 0.00297], brokerage_pct: ['Brokerage %', 0], brokerage_max: ['Brokerage cap per order ₹', 20],
-  dp_per_sell: ['DP charge per sell ₹', 15.93],
+  dp_per_sell: ['DP charge per sell ₹', 15.93], gst_pct: ['GST on fees %', 18], sebi_pct: ['SEBI fee %', 0.0001],
 } as const
 
 // Size bands follow SEBI's market-cap classes (large 1-100, mid 101-250, small 251+).
@@ -46,6 +46,10 @@ export function Backtest({ go }: { go: (h: string) => void }) {
   const [benches, setBenches] = useState<string[]>([])
   const [fill, setFill] = useState<'open' | 'close'>('open')
   const [maxVol, setMaxVol] = useState(10)
+  const [haircut, setHaircut] = useState(0)
+  const [taxMode, setTaxMode] = useState<'pay' | 'report'>('pay')
+  const [slab, setSlab] = useState(30)
+  const [surcharge, setSurcharge] = useState(0)
   const [costs, setCosts] = useState<Record<string, number>>(Object.fromEntries(Object.entries(COSTS).map(([k, v]) => [k, v[1]])))
   const [status, setStatus] = useState<any>(null)
   const [err, setErr] = useState('')
@@ -86,7 +90,8 @@ export function Backtest({ go }: { go: (h: string) => void }) {
     try {
       const { id } = await api<{ id: string }>('/backtests', { body: {
         strategy_id: sid, params,
-        config: { start, end: end || null, initial_cash: cash, universe: universe(), benchmark: bench, fill, max_volume_pct: maxVol, costs },
+        config: { start, end: end || null, initial_cash: cash, universe: universe(), benchmark: bench, fill, max_volume_pct: maxVol, costs,
+          delist_haircut_pct: haircut, taxes: { mode: taxMode, slab_pct: slab, surcharge_pct: surcharge } },
       } })
       const poll = async () => {
         const s = await api<any>(`/backtests/${id}`)
@@ -121,7 +126,11 @@ export function Backtest({ go }: { go: (h: string) => void }) {
             <div className="grid3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
               {Object.entries(strat.params).map(([k, def]) => (
                 <label className="field" key={k}>{k.replace(/_/g, ' ')}
-                  {typeof def === 'boolean'
+                  {k === 'timeframe'
+                    ? <select value={String(params[k] ?? def)} onChange={(e) => setParams((p) => ({ ...p, [k]: e.target.value }))}>
+                        <option value="daily">Daily bars</option><option value="weekly">Weekly bars</option>
+                      </select>
+                    : typeof def === 'boolean'
                     ? <input type="checkbox" checked={!!params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: e.target.checked }))} />
                     : <input type={typeof def === 'number' ? 'number' : 'text'} value={params[k] ?? ''} step="any"
                         onChange={(e) => setParams((p) => ({ ...p, [k]: typeof def === 'number' ? Number(e.target.value) : e.target.value }))} />}
@@ -216,6 +225,7 @@ export function Backtest({ go }: { go: (h: string) => void }) {
               </div>
             </label>
             <label className="field">Max share of day's volume (%)<input type="number" value={maxVol} onChange={(e) => setMaxVol(Number(e.target.value))} /></label>
+            <label className="field">Loss on delisted exits (%)<input type="number" step="any" value={haircut} onChange={(e) => setHaircut(Number(e.target.value))} /></label>
           </div>
           <details>
             <summary>Transaction costs</summary>
@@ -224,7 +234,21 @@ export function Backtest({ go }: { go: (h: string) => void }) {
                 <label className="field" key={k}>{label}<input type="number" step="any" value={costs[k]} onChange={(e) => setCosts((c) => ({ ...c, [k]: Number(e.target.value) }))} /></label>
               ))}
             </div>
-            <p className="small muted">GST (18%) applies on brokerage and exchange fees. Defaults match a zero-brokerage discount broker.</p>
+            <p className="small muted">GST applies on brokerage, exchange and SEBI fees. Defaults match a zero-brokerage discount broker.</p>
+          </details>
+          <details>
+            <summary>Capital-gains tax</summary>
+            <div className="row" style={{ marginTop: 10 }}>
+              <label className="field">Tax
+                <div className="seg">
+                  <button className={taxMode === 'pay' ? 'on' : ''} onClick={() => setTaxMode('pay')}>Pay from the portfolio</button>
+                  <button className={taxMode === 'report' ? 'on' : ''} onClick={() => setTaxMode('report')}>Only report it</button>
+                </div>
+              </label>
+              <label className="field">Slab rate %<input type="number" step="any" value={slab} onChange={(e) => setSlab(Number(e.target.value))} /></label>
+              <label className="field">Surcharge %<input type="number" step="any" value={surcharge} onChange={(e) => setSurcharge(Number(e.target.value))} /></label>
+            </div>
+            <p className="small muted">STCG and LTCG at the rates in force on each sale date, netted per financial year with loss carry-forward, plus cess. Paid on the first session of each April. The slab rate applies to short-term gains on gold, debt and foreign ETFs; the surcharge depends on your income (equity gains are capped at 15%).</p>
           </details>
           <div className="row" style={{ marginTop: 'auto' }}>
             <button className="btn primary" onClick={run} disabled={!sid || status?.status === 'running'}>Run backtest</button>

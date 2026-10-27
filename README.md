@@ -62,6 +62,17 @@ Sector weights over time, biggest contributors and open positions:
 
 ![Sector weights and contributors](docs/screenshots/results-holdings.jpg)
 
+**Costs & tax** itemises every charge (STT, stamp duty, exchange, SEBI, GST, DP, slippage)
+by year and shows CAGR before costs, after costs, and after capital-gains tax. Tax follows
+the law on each sale date: equity STCG/LTCG with the 2018 and July 2024 changes, the LTCG
+exemption, 31 Jan 2018 grandfathering, separate rules for gold/debt/foreign ETFs, yearly
+loss set-off and 8-year carry-forward. It is paid from the portfolio each April (or only
+reported). `backend/mbt/engine/taxes.py` lists the rules.
+
+**Robustness** asks whether the result is a broad edge or luck: profit concentration, CAGR
+with the best names removed, P&L by asset type, sector and year, Sharpe and alpha
+t-statistics, a block bootstrap, sub-periods, rolling windows and fill size vs volume.
+
 ## Run it
 
 ```bash
@@ -126,7 +137,14 @@ class LowVolQuality(Strategy):
 
 `ctx` gives you `universe`, `eval(formula)`, `history(field, n)`, `price`, `positions`,
 `cash`, `equity`, `buy/sell/order`, `rebalance(weights)`, `set_stop(stop/trail/take-profit)`
-and `log`. See `strategies/trend_breakout.py` for a per-position example with stops.
+and `log`.
+
+**Weekly bars.** In a formula, `weekly(expr)` counts the windows inside `expr` in weekly bars:
+`weekly(sma(close, 50))` is a 50-week SMA, and `weekly(highest(high, 52))` is the 52-week high
+of weekly highs. The current week's bar is the week so far. Fixed-length metrics like
+`ret_6m` or `adv_63d` don't change. The indicator strategies take a `timeframe` param
+(daily | weekly). On weekly they use `self.bars(formula)` and `ctx.bar_closed(timeframe)`,
+so they only decide at the week's last close. See `strategies/trend_breakout.py` for a per-position example with stops.
 
 ## Known limits
 
@@ -136,6 +154,8 @@ and `log`. See `strategies/trend_breakout.py` for a per-position example with st
 * Prices aren't adjusted for dividends, and the benchmarks are price indices, so both sides
   exclude dividends.
 * Sector classification is current, not historical.
+* Tax ignores surcharge (a setting), rebates, dividends and advance-tax timing. Fund tax
+  classes come from the fund's name and category.
 
 ## License
 

@@ -8,30 +8,37 @@ from mbt.engine.strategy import Strategy
 
 class TrendBreakout(Strategy):
     name = "52-week-high breakout"
-    description = ("Daily: buy stocks closing at a 52-week high above a rising 200-day "
-                   "average; exit on a trailing stop or when price falls under the 200 DMA. "
-                   "Max N positions, each sized at a fixed % of equity.")
+    description = ("Each bar (daily or weekly): buy stocks closing at a high_bars high above "
+                   "a rising trend_sma average (rising over slope_bars); exit on a trailing "
+                   "stop or when price falls under the average. Max N positions, each sized "
+                   "at a fixed % of equity. For weekly, try high_bars 52, trend_sma 40, "
+                   "slope_bars 4.")
     params = {"max_positions": 15, "position_pct": 6.0, "stop_pct": 12.0,
-              "trail_pct": 20.0, "min_adv_cr": 5.0}
+              "trail_pct": 20.0, "min_adv_cr": 5.0, "high_bars": 252, "trend_sma": 200,
+              "slope_bars": 20, "timeframe": "daily"}
     schedule = "daily"
     warmup = 0
 
     def on_bar(self, ctx):
+        p = self.p
+        if not ctx.bar_closed(p.timeframe):
+            return
+        trend = f"sma(close, {p.trend_sma})"
         # Exits: trend broken
         held = list(ctx.positions)
         if held:
-            below = ctx.eval("close < sma(close, 200)", held)
+            below = ctx.eval(self.bars(f"close < {trend}"), held)
             for s in below[below.astype(bool)].index:
-                ctx.sell(s, reason="below 200 DMA")
+                ctx.sell(s, reason="below trend average")
 
         # Entries: fill free slots with the strongest breakouts
         slots = self.p.max_positions - len(ctx.positions) + \
             sum(1 for o in ctx.pending_orders if o.qty < 0)
         if slots <= 0:
             return
-        signal = ctx.eval(
-            f"close >= highest(high, 252) * 0.995 and close > sma(close, 200) "
-            f"and sma(close, 200) > lag(sma(close, 200), 20) and adv_63d > {self.p.min_adv_cr}")
+        signal = ctx.eval(self.bars(
+            f"close >= highest(high, {p.high_bars}) * 0.995 and close > {trend} "
+            f"and {trend} > lag({trend}, {p.slope_bars}) and adv_63d > {p.min_adv_cr}"))
         cands = signal[signal.astype(bool)].index.difference(list(ctx.positions))
         if len(cands) == 0:
             return

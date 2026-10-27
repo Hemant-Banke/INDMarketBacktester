@@ -156,6 +156,14 @@ def _rsi14(ev, i):
     return _rsi(ev, i, 14)
 
 
+@metric("is_fund", "Liquidity", "1 for ETFs and mutual fund units (liquid, gold, index...), "
+        "0 for company shares. Use `not is_fund` to keep only stocks")
+def _is_fund(ev, i):
+    # Fund units carry INF ISINs; company shares INE. Sector labels miss delisted funds and
+    # tag a few companies as ETFs, so the ISIN is the reliable marker.
+    return ev.md.securities["isin"].fillna("").str.startswith("INF").to_numpy(float)
+
+
 @metric("age_days", "Liquidity", "Sessions since first trade on NSE (within loaded history)")
 def _age(ev, i):
     c = np.isfinite(ev.md.panel("close")[: i + 1])
@@ -258,7 +266,10 @@ _ratio("payout_ratio", "Quality", "Dividends per share / EPS (%)", F("dps"), F("
 # --------------------------------------------------------------------------- functions
 
 def _rsi(ev, i, n):
-    w = ev.md.window("close_ffill", i, n * 6).astype(float)
+    return _rsi_of(ev.md.window("close_ffill", i, n * 6).astype(float), n)
+
+
+def _rsi_of(w, n):
     d = np.diff(w, axis=0)
     if len(d) < n:
         return np.full(w.shape[1], np.nan)
@@ -301,6 +312,8 @@ class Evaluator:
         self.extra = extra or {}       # e.g. live Tickertape fields (screener "today" only)
         self._cache: dict[tuple, Arr] = {}
         self._parsed: dict[str, ast.AST] = {}
+        self._weekly = False           # inside weekly(...): windows count weekly bars
+        self._weeks: tuple[np.ndarray, np.ndarray] | None = None
 
     def benchmark_close(self, name: str):
         s = self.md.benchmarks.get(name)
@@ -411,10 +424,20 @@ class Evaluator:
             return np.where(c, self._ev(node.body, i), self._ev(node.orelse, i))
         if isinstance(node, ast.Call):
             name = node.func.id
+            if name == "weekly":
+                if len(node.args) != 1:
+                    raise FormulaError("weekly(expr) takes 1 argument")
+                outer, self._weekly = self._weekly, True
+                try:
+                    return self._ev(node.args[0], i)
+                finally:
+                    self._weekly = outer
             if name in self.TS_FUNCS:
                 return self._ts(name, node.args, i)
             if name == "rsi":
                 n = int(self._const(node.args[1])) if len(node.args) > 1 else 14
+                if self._weekly:
+                    return _rsi_of(self._bar_window("close", i, n * 6), n)
                 return _rsi(self, i, n)
             if name in ("sector_rank", "industry_rank", "sector_median", "industry_median",
                         "sector_mean", "industry_mean"):
@@ -438,16 +461,23 @@ class Evaluator:
             raise FormulaError("Window must be between 1 and 5000")
         x = args[0]
         if name in ("lag", "change", "pct_change"):
-            if i - n < 0:
+            then_i = self._bars(i, n + 1)[0] if self._weekly else i - n
+            if then_i < 0 or (self._weekly and len(self._bars(i, n + 1)) < n + 1):
                 return np.full(len(self.md.symbols), np.nan)
-            now, then = self._ev(x, i), self._ev(x, i - n)
+            now, then = self._ev(x, i), self._ev(x, then_i)
             if name == "lag":
                 return then
             if name == "change":
                 return np.asarray(now, float) - np.asarray(then, float)
             return (_safe_div(now, then) - 1) * 100
         # windowed aggregates: fast path for raw price panels, generic path otherwise
-        if isinstance(x, ast.Name) and x.id in PRICE_FIELDS:
+        if self._weekly:
+            span = 4 * n if name == "ema" else n
+            if isinstance(x, ast.Name) and x.id in PRICE_FIELDS:
+                w = self._bar_window(x.id, i, span)
+            else:
+                w = np.vstack([np.asarray(self._ev(x, j), float) for j in self._bars(i, span)])
+        elif isinstance(x, ast.Name) and x.id in PRICE_FIELDS:
             w = self.md.window("close_ffill" if x.id == "close" else x.id, i, n).astype(float)
         else:
             w = np.vstack([np.asarray(self._ev(x, j), float)
@@ -467,7 +497,7 @@ class Evaluator:
                 return np.nanmin(w, 0)
             if name == "ema":
                 # seed with enough history for the EMA to converge (~4n bars)
-                if isinstance(x, ast.Name) and x.id in PRICE_FIELDS:
+                if isinstance(x, ast.Name) and x.id in PRICE_FIELDS and not self._weekly:
                     w = self.md.window("close_ffill" if x.id == "close" else x.id, i,
                                        4 * n).astype(float)
                 a = 2 / (n + 1)
@@ -477,6 +507,50 @@ class Evaluator:
                                                             (1 - a) * e, row), e)
                 return e
         raise FormulaError(name)
+
+    # ---- weekly bars ----
+    def _week_index(self) -> tuple[np.ndarray, np.ndarray]:
+        """(week_start[j], week_ends): each session's first session of its ISO week, and
+        the sessions that close a week. A week counts as closed once a later session is in
+        a new week, so nothing here depends on dates after the one evaluated."""
+        if self._weeks is None:
+            iso = self.md.dates.isocalendar()
+            wk = (iso["year"].to_numpy() * 100 + iso["week"].to_numpy()).astype(np.int64)
+            new = np.r_[True, wk[1:] != wk[:-1]]
+            start = np.maximum.accumulate(np.where(new, np.arange(len(wk)), 0))
+            ends = np.flatnonzero(new[1:])          # j where session j+1 opens a new week
+            self._weeks = (start, ends)
+        return self._weeks
+
+    def _bars(self, i: int, n: int) -> np.ndarray:
+        """Session indices of the last n weekly bars up to i. The bar of i's own week is
+        represented by i itself (the week so far, as on a live weekly chart)."""
+        start, ends = self._week_index()
+        prior = ends[: np.searchsorted(ends, start[i])]
+        return np.r_[prior[-(n - 1):] if n > 1 else prior[:0], i]
+
+    def _bar_window(self, field: str, i: int, n: int) -> np.ndarray:
+        """[bars, N] weekly OHLCV: open = first, high = max, low = min, close = last,
+        volume/value = sum over each week's sessions up to i."""
+        start, _ = self._week_index()
+        arr = self.md.close_ffill if field == "close" else self.md.panel(field)
+        rows = []
+        with np.errstate(all="ignore"):
+            for j in self._bars(i, n):
+                seg = arr[start[j]: j + 1].astype(float)
+                if field == "close":
+                    rows.append(seg[-1])
+                elif field == "open":
+                    ok = np.isfinite(seg)
+                    first = np.where(ok.any(0), ok.argmax(0), 0)
+                    rows.append(np.where(ok.any(0), seg[first, np.arange(seg.shape[1])], np.nan))
+                elif field == "high":
+                    rows.append(np.nanmax(seg, 0))
+                elif field == "low":
+                    rows.append(np.nanmin(seg, 0))
+                else:
+                    rows.append(np.where(np.isfinite(seg).any(0), np.nansum(seg, 0), np.nan))
+        return np.vstack(rows)
 
     def _group(self, name, x, i):
         col = "sector" if name.startswith("sector") else "industry"
@@ -535,7 +609,7 @@ FUNCTIONS: dict[str, Callable] = {
     "rank": _xs_rank,
     "zscore": _xs_z,
     # These are dispatched inside Evaluator but must be listed here to pass validation:
-    **{k: None for k in ("sma", "ema", "std", "highest", "lowest", "lag", "change",
+    **{k: None for k in ("weekly", "sma", "ema", "std", "highest", "lowest", "lag", "change",
                          "pct_change", "sum", "mean_n", "rsi", "sector_rank", "industry_rank",
                          "sector_median", "industry_median", "sector_mean", "industry_mean")},
 }
@@ -555,6 +629,8 @@ FUNCTION_DOCS = {
     "lowest(x, n)": "Min over n sessions", "sum(x, n)": "Sum over n sessions",
     "lag(x, n)": "x as it was n sessions ago", "change(x, n)": "x - lag(x, n)",
     "pct_change(x, n)": "% change of x over n sessions", "rsi(close, n)": "Wilder RSI",
+    "weekly(expr)": "Count windows inside expr (sma, ema, lag, highest, rsi, ...) in weekly "
+                    "bars, e.g. weekly(sma(close, 50)). Metrics like ret_6m are unchanged",
 }
 
 

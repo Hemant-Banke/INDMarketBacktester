@@ -16,18 +16,20 @@ class CostModel:
     dp_per_sell: float = 15.93      # depository charge per scrip per sell
     slippage_bps: float = 10.0      # price impact, applied to the fill price
 
-    def fees(self, side: str, value: float) -> float:
+    def breakdown(self, side: str, value: float) -> dict[str, float]:
+        """Each charge on one order, in rupees. Slippage is not here: it is in the fill price."""
         brokerage = min(value * self.brokerage_pct / 100, self.brokerage_max) \
             if self.brokerage_pct else 0.0
         exch = value * self.exchange_pct / 100
         sebi = value * self.sebi_pct / 100
-        fee = brokerage + exch + sebi + value * self.stt_pct / 100
-        fee += (brokerage + exch + sebi) * self.gst_pct / 100
-        if side == "buy":
-            fee += value * self.stamp_buy_pct / 100
-        else:
-            fee += self.dp_per_sell
-        return fee
+        return {"brokerage": brokerage, "stt": value * self.stt_pct / 100,
+                "exchange": exch, "sebi": sebi,
+                "gst": (brokerage + exch + sebi) * self.gst_pct / 100,
+                "stamp": value * self.stamp_buy_pct / 100 if side == "buy" else 0.0,
+                "dp": self.dp_per_sell if side == "sell" else 0.0}
+
+    def fees(self, side: str, value: float) -> float:
+        return sum(self.breakdown(side, value).values())
 
     def fill_price(self, side: str, px: float) -> float:
         s = self.slippage_bps / 1e4
